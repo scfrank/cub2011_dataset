@@ -12,11 +12,12 @@ class Cub2011(Dataset):
     filename = 'CUB_200_2011.tgz'
     tgz_md5 = '97eceeb196236b17998738112f37df78'
 
-    def __init__(self, root, train=True, transform=None, loader=default_loader, download=True):
+    def __init__(self, root, train=True, transform=None, loader=default_loader, download=True, subset20=False):
         self.root = os.path.expanduser(root)
         self.transform = transform
         self.loader = default_loader
         self.train = train
+        self.subset20 = subset20
 
         if download:
             self._download()
@@ -35,6 +36,9 @@ class Cub2011(Dataset):
 
         data = images.merge(image_class_labels, on='img_id')
         self.data = data.merge(train_test_split, on='img_id')
+        if self.subset20:
+            self.data = self.data[self.data.target < 21]
+            print(f"CUB20 num_species {len(set(self.data.target))} N {len(self.data)}")
 
         if self.train:
             self.data = self.data[self.data.is_training_img == 1]

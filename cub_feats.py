@@ -1,10 +1,12 @@
 import os
 from itertools import product
+import numpy as np
 # import pandas as pd
 import polars as pl
 from torchvision.datasets.folder import default_loader
 from torchvision.datasets.utils import download_url
 from torch.utils.data import Dataset
+
 
 """
 Pytorch dataset for CUB with descriptions from Scott Reed.
@@ -26,11 +28,13 @@ class CubFeats(Dataset):
     filename = 'CUB_200_2011.tgz'
     tgz_md5 = '97eceeb196236b17998738112f37df78'
 
-    def __init__(self, root, train=True, transform=None, loader=default_loader, download=False):
+    def __init__(self, root, train=True, transform=None, loader=default_loader, download=False,
+                 feats_only=False):
         self.root = os.path.expanduser(root)
         self.transform = transform
         self.loader = default_loader
         self.train = train
+        self.feats_only = feats_only
 
         if download:
             self._download()
@@ -39,6 +43,7 @@ class CubFeats(Dataset):
         if not self._check_integrity():  # this sets up data (in _load_metadata)
             raise RuntimeError('Dataset not found or corrupted.' +
                                ' You can use download=True to download it')
+        print(f"Created CUBFeats dataset N{len(self.data)} feats only? {self.feats_only}")
 
     def _load_metadata(self):
         images = pl.read_csv(os.path.join(self.root, 'CUB_200_2011', 'images.txt'), separator=' ',
@@ -60,9 +65,9 @@ class CubFeats(Dataset):
         # creates a (img_id, attr-1, attr-2, etc) table of boolean values.
         attributes = attributes.select(
             'img_id',
-            pl.col('attr_id').map_elements(lambda x: f"attr-{x}"),
+            pl.col('attr_id').map_elements(lambda x: f"attr-{x}", return_dtype=str),
             pl.col('is_present').cast(pl.Boolean)
-        ).pivot('is_present', index='img_id', columns='attr_id')
+        ).pivot(on='attr_id', values='is_present', index='img_id') #, columns='attr_id')
 
         # combines attributes columns into a single list column
         attributes = attributes.select(
@@ -76,14 +81,23 @@ class CubFeats(Dataset):
             self.data = self.data.filter(pl.col("is_training_img") == 1)
         else:
             self.data = self.data.filter(pl.col("is_training_img") == 0)
+
+        # hacky ways of getting everything out of polars for iterating
         self.items = self.data.get_column('img_id').to_list()  # for indexing
+
+        ad = attributes.to_dict()
+        self.attr_dict = dict(zip(ad['img_id'], ad['attributes']))
+
+        dd = self.data.to_dict()
+        self.target_dict = dict(zip(dd['img_id'], dd['target']))
+        self.files_dict = dict(zip(dd['img_id'], dd['filepath']))
 
 
     def _check_integrity(self):
         try:
             self._load_metadata()
-        except Exception:
-            return False
+        except Exception as e:
+            raise e
 
         for row in self.data.iter_rows(named=True):  # this is discouraged
             filepath = os.path.join(self.root, self.base_folder, row['filepath'])
@@ -107,30 +121,41 @@ class CubFeats(Dataset):
     def __len__(self):
         return len(self.data)
 
-    def __getitem__(self, idx):
+    def __getitem_pl__(self, idx):
+        """this hangs on next() in a pytorch dataloader."""
         img_id = self.items[idx]  # dict or array
 
         sample = self.data.filter(pl.col('img_id') == img_id).row(0, named=True)
         #print(img_id, 'sampled', sample)
 
-        path = os.path.join(self.root, self.base_folder, sample['filepath'])
+        attributes = np.array(sample['attributes'])
         target = sample['target'] - 1  # Targets start at 1 by default, so shift to 0 # (inspection/debugging zombie)
-        img = self.loader(path)  # this is where all the time gets spent, everything else is negligible
 
-        #description = self.captions.get_column(str(img_id)).list.get(descr_id).item()
-        attributes = sample['attributes']
+        if self.feats_only:
+            return attributes, target
+        else:
+            path = os.path.join(self.root, self.base_folder, sample['filepath'])
+            img = self.loader(path)  # this is where all the time gets spent, everything else is negligible
 
-        if self.transform is not None:
-            img = self.transform(img)
+            if self.transform is not None:
+                img = self.transform(img)
 
-        return (img, attributes), target
+            return (img, attributes), target
+
+    def __getitem__(self, idx):
+        """polars-free version for *feats_only*""" # TODO FIX BUG DEBUG
+        img_id = self.items[idx]  # dict or array
+        attr = np.array(self.attr_dict[img_id])
+        target = self.target_dict[img_id] - 1 # Targets start at 1 by default, so shift to 0 # (inspection/debugging zombie)
+        return (attr, target)
+
 
 if __name__ == "__main__":
-    cc=CubFeats('./data', download=False)
+    cc=CubFeats('./data', download=False, feats_only=True)
     print(cc[0])
 
-    # def loop_test():
-    #     for i in range(100):
-    #         cc[i]
-    # import timeit
-    # print(timeit.timeit('loop_test()', globals=globals(), number=100))
+    def loop_test():
+        for i in range(100):
+            cc[i]
+    import timeit
+    print(timeit.timeit('loop_test()', globals=globals(), number=100))

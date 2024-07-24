@@ -70,8 +70,9 @@ class CubCaps(Dataset):
     def _check_integrity(self):
         try:
             self._load_metadata()
-        except Exception:
-            return False
+        except Exception as e:
+            raise e
+            #return False
 
         # This is slow
         for row in self.data.iter_rows(named=True):  # this is discouraged
@@ -115,6 +116,7 @@ class CubCaps(Dataset):
 
 if __name__ == "__main__":
     cc=CubCaps('./data', download=False)
+    print(cc[0])
 
     def loop_test():
         for i in range(100):
