@@ -79,3 +79,16 @@ class Cub2011(Dataset):
             img = self.transform(img)
 
         return img, target
+
+if __name__ == "__main__":
+    cc=Cub2011('./data', download=False)
+
+    def loop_test():
+        for i in range(100):
+            cc[i]
+
+    import timeit
+    print(timeit.timeit('cc._check_integrity()', globals=globals(), number=1))  # this doesn't actually take time.
+    print(timeit.timeit('loop_test()', globals=globals(), number=100))
+
+
