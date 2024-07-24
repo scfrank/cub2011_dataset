@@ -1,7 +1,7 @@
 import os
 from itertools import product
 # import pandas as pd
-import polars as pl  # drop in?
+import polars as pl
 from torchvision.datasets.folder import default_loader
 from torchvision.datasets.utils import download_url
 from torch.utils.data import Dataset
